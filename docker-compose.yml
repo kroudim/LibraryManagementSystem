@@ -1,0 +1,136 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateway/Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      party-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      reservation-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+    environment:
+      - ASPNETCORE_URLS=http://+:5000
+      - ASPNETCORE_ENVIRONMENT=Development
+
+  party-service:
+    build:
+      context: .
+      dockerfile: src/Services/Party/Party.API/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_URLS=http://+:5001
+      - ASPNETCORE_ENVIRONMENT=Development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/parties"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  catalog-service:
+    build:
+      context: .
+      dockerfile: src/Services/Catalog/Catalog.API/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_URLS=http://+:5002
+      - ASPNETCORE_ENVIRONMENT=Development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/api/books"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  reservation-service:
+    build:
+      context: .
+      dockerfile: src/Services/Reservation/Reservation.API/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_URLS=http://+:5003
+      - ASPNETCORE_ENVIRONMENT=Development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/api/reservations"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: src/Services/Audit/Audit.API/Dockerfile
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_URLS=http://+:5004
+      - ASPNETCORE_ENVIRONMENT=Development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/api/events?page=1&pageSize=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres-data:
+  mongo-data:
